@@ -1,98 +1,252 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import { getCurrentLocation, LocationCoords } from "@/lib/currentLocation";
+import { db } from "@/lib/firebase";
+// eslint-disable-next-line import/no-unresolved
+import mapTemplate from "@/lib/map-template";
+import { useLocalSearchParams } from "expo-router";
+import { collection, onSnapshot } from "firebase/firestore";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Button,
+  FlatList,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { WebView } from "react-native-webview";
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const TOMTOM_API_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const params = useLocalSearchParams<{
+    lat?: string;
+    lng?: string;
+    name?: string;
+  }>();
+  console.log("Destination params:", params);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  const destinationFromParam = useMemo(() => {
+    if (params.lat && params.lng) {
+      return {
+        latitude: parseFloat(params.lat),
+        longitude: parseFloat(params.lng),
+        name: params.name || "",
+      };
+    }
+    return null;
+  }, [params.lat, params.lng, params.name]);
+
+  const [originInput, setOriginInput] = useState("");
+  const [destinationInput, setDestinationInput] = useState(
+    destinationFromParam?.name || ""
+  );
+  const [originCoords, setOriginCoords] = useState<LocationCoords | null>(null);
+  const [destinationCoords, setDestinationCoords] =
+    useState<LocationCoords | null>(
+      destinationFromParam
+        ? {
+            latitude: destinationFromParam.latitude,
+            longitude: destinationFromParam.longitude,
+          }
+        : null
+    );
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+  const [activeField, setActiveField] = useState<
+    "origin" | "destination" | null
+  >(null);
+  const [highRiskZones, setHighRiskZones] = useState<
+    { coords: [number, number]; radius: number }[]
+  >([]);
+
+  const webViewRef = useRef<WebView>(null);
+
+  // 1️⃣ Get user location on mount
+  useEffect(() => {
+    (async () => {
+      const loc = await getCurrentLocation();
+      if (loc) {
+        setOriginCoords(loc);
+        setOriginInput(`${loc.latitude}, ${loc.longitude}`);
+      }
+    })();
+  }, []);
+
+  // 2️⃣ Firestore geofencing zones
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "geofencing_zones"),
+      (snapshot) => {
+        const zones = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            coords: [data.coordinates[1], data.coordinates[0]] as [
+              number,
+              number
+            ],
+            radius: data.radius,
+          };
+        });
+        setHighRiskZones(zones);
+      }
+    );
+
+    return () => unsubscribe();
+  }, []);
+
+  // 3️⃣ TomTom suggestions
+  const fetchSuggestions = async (
+    query: string,
+    field: "origin" | "destination"
+  ) => {
+    if (!query) return setSuggestions([]);
+    try {
+      const url = `https://api.tomtom.com/search/2/search/${encodeURIComponent(
+        query
+      )}.json?key=${TOMTOM_API_KEY}&limit=5`;
+      const res = await fetch(url);
+      const data = await res.json();
+      setActiveField(field);
+      setSuggestions(data.results || []);
+    } catch (err) {
+      console.error("TomTom API error:", err);
+    }
+  };
+
+  const handleSelectSuggestion = (item: any) => {
+    const { lat, lon } = item.position;
+    if (activeField === "origin") {
+      setOriginCoords({ latitude: lat, longitude: lon });
+      setOriginInput(item.address.freeformAddress || `${lat}, ${lon}`);
+    } else if (activeField === "destination") {
+      setDestinationCoords({ latitude: lat, longitude: lon });
+      setDestinationInput(item.address.freeformAddress || `${lat}, ${lon}`);
+    }
+    setSuggestions([]);
+    setActiveField(null);
+  };
+
+  const drawRoute = () => {
+    if (!originCoords || !destinationCoords) {
+      Alert.alert("Error", "Please select valid origin and destination.");
+      return;
+    }
+    const js = `
+      if (typeof drawRoute === "function") {
+        drawRoute([${originCoords.longitude}, ${originCoords.latitude}], [${destinationCoords.longitude}, ${destinationCoords.latitude}]);
+      } else {
+        window.ReactNativeWebView.postMessage("drawRoute function missing in mapTemplate");
+      }
+      true;
+    `;
+    webViewRef.current?.injectJavaScript(js);
+  };
+
+  // 4️⃣ Auto-set destination from URL param
+  useEffect(() => {
+    if (destinationFromParam) {
+      setDestinationCoords({
+        latitude: destinationFromParam.latitude,
+        longitude: destinationFromParam.longitude,
+      });
+      setDestinationInput(destinationFromParam.name || "");
+    }
+  }, [destinationFromParam]);
+
+  // 5️⃣ Auto-draw route when both coords are ready
+  useEffect(() => {
+    if (originCoords && destinationCoords) {
+      drawRoute();
+    }
+  }, [originCoords, destinationCoords]);
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.controls}>
+        <TextInput
+          style={styles.input}
+          placeholder="Origin"
+          value={originInput}
+          onChangeText={(text) => {
+            setOriginInput(text);
+            fetchSuggestions(text, "origin");
+          }}
+        />
+        <TextInput
+          style={styles.input}
+          placeholder="Destination"
+          value={destinationInput}
+          onChangeText={(text) => {
+            setDestinationInput(text);
+            fetchSuggestions(text, "destination");
+          }}
+        />
+        <Button title="Directions" onPress={drawRoute} />
+      </View>
+
+      {suggestions.length > 0 && (
+        <FlatList
+          style={styles.suggestions}
+          data={suggestions}
+          keyExtractor={(item, index) => `${item.id}-${index}`}
+          renderItem={({ item }) => (
+            <TouchableOpacity onPress={() => handleSelectSuggestion(item)}>
+              <Text style={styles.suggestionItem}>
+                {item.address.freeformAddress}
+              </Text>
+            </TouchableOpacity>
+          )}
+        />
+      )}
+
+      <WebView
+        ref={webViewRef}
+        style={styles.map}
+        originWhitelist={["*"]}
+        onMessage={(event) => {
+          const msg = event.nativeEvent.data;
+          console.log("Map Event:", msg);
+          if (msg === "map-ready" && originCoords && destinationCoords) {
+            drawRoute();
+          }
+        }}
+        source={{
+          html: mapTemplate(
+            highRiskZones,
+            originCoords
+              ? [originCoords.longitude, originCoords.latitude]
+              : undefined,
+            []
+          ),
+        }}
+      />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
+  safeArea: { flex: 1, backgroundColor: "#fff" },
+  map: { flex: 1 },
+  controls: {
+    flexDirection: "row",
+    padding: 8,
+    backgroundColor: "#f0f0f0",
+    alignItems: "center",
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: "#ccc",
+    padding: 6,
+    marginRight: 8,
+    borderRadius: 4,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  suggestions: { backgroundColor: "#fff", maxHeight: 200 },
+  suggestionItem: {
+    padding: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#eee",
   },
 });
