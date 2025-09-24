@@ -1,12 +1,13 @@
-// app/(tabs)/_layout.tsx
-import { Ionicons } from '@expo/vector-icons';
+"use client";
+
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Tabs } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { TabBarIcon } from '@/components/navigation/TabBarIcon';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { dbRealtime, pushSOS } from '@/lib/firebase';
@@ -14,17 +15,8 @@ import { getValidTouristId } from '@/lib/getValidTouristId';
 import { startGpsStream, stopGpsStream } from '@/lib/gps-stream';
 import { onValue, ref } from 'firebase/database';
 
-// A simple TabBarIcon component. You can customize this as needed.
-function TabBarIcon({ name, color }: { name: React.ComponentProps<typeof Ionicons>['name']; color: string }) {
-  return <Ionicons size={28} style={{ marginBottom: -3 }} name={name} color={color} />;
-}
-
 const SafetyScoreDisplay = () => {
-  const [safetyInfo, setSafetyInfo] = useState<{
-    score: number;
-    level: string;
-    district: string;
-  } | null>(null);
+  const [safetyInfo, setSafetyInfo] = useState<{ score: number; level: string; district: string } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,16 +29,16 @@ const SafetyScoreDisplay = () => {
         const location = await Location.getCurrentPositionAsync({});
         const { latitude, longitude } = location.coords;
 
-        // Make sure to replace this with your actual server URL
-        const response = await fetch('https://e0d132f1f08a.ngrok-free.app/calculate_score', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ latitude, longitude }),
-        });
+        const response = await fetch(
+          'https://e0d132f1f08a.ngrok-free.app/calculate_score',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ latitude, longitude }),
+          }
+        );
 
-        if (!response.ok) {
-          throw new Error('Server error');
-        }
+        if (!response.ok) throw new Error('Server error');
 
         const data = await response.json();
         setSafetyInfo(data);
@@ -60,7 +52,6 @@ const SafetyScoreDisplay = () => {
 
     fetchScore();
     const intervalId = setInterval(fetchScore, 60000);
-
     return () => clearInterval(intervalId);
   }, []);
 
@@ -92,6 +83,9 @@ export default function TabLayout() {
   const colorScheme = useColorScheme();
   const insets = useSafeAreaInsets();
 
+  const sosPressCount = useRef(0);
+  const sosTimeout = useRef<NodeJS.Timeout | null>(null);
+
   useEffect(() => {
     (async () => {
       let { status: foregroundStatus } = await Location.requestForegroundPermissionsAsync();
@@ -108,42 +102,56 @@ export default function TabLayout() {
       const touristId = await getValidTouristId();
       const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL;
 
-      if (touristId && serverUrl) {
-        startGpsStream(touristId, serverUrl);
-      }
+      if (touristId && serverUrl) startGpsStream(touristId, serverUrl);
     })();
 
     const sosRef = ref(dbRealtime, 'sos');
-    onValue(sosRef, (snapshot) => {
-      // Logic to handle incoming SOS data if needed
-    });
+    onValue(sosRef, (snapshot) => {});
 
-    return () => {
-      stopGpsStream();
-    };
+    return () => stopGpsStream();
   }, []);
 
   const handleSOS = async () => {
-    const touristId = await getValidTouristId();
-    if (!touristId) {
-      alert('Could not verify tourist ID.');
+    sosPressCount.current += 1;
+
+    if (sosTimeout.current) clearTimeout(sosTimeout.current);
+
+    // Reset counter after 30 seconds if second press doesn't happen
+    sosTimeout.current = setTimeout(() => {
+      sosPressCount.current = 0;
+    }, 30000); // 30 seconds
+
+    if (sosPressCount.current === 1) {
+      Alert.alert('Confirm SOS', 'Press again within 30 seconds to send SOS.');
       return;
     }
 
-    try {
-      const location = await Location.getCurrentPositionAsync({});
-      await pushSOS(touristId, location.coords.latitude, location.coords.longitude);
-      alert('SOS signal sent!');
-      Notifications.scheduleNotificationAsync({
-        content: {
-          title: 'SOS Sent!',
-          body: 'Your emergency signal has been sent to the authorities.',
-        },
-        trigger: null,
-      });
-    } catch (error) {
-      console.error('Error sending SOS:', error);
-      alert('Failed to send SOS signal.');
+    if (sosPressCount.current >= 2) {
+      sosPressCount.current = 0;
+      if (sosTimeout.current) clearTimeout(sosTimeout.current);
+
+      try {
+        const location = await Location.getCurrentPositionAsync({});
+        const touristId = await getValidTouristId();
+        if (!touristId) {
+          Alert.alert('Error', 'Could not verify tourist ID.');
+          return;
+        }
+
+        await pushSOS(touristId, location.coords.latitude, location.coords.longitude);
+
+        Alert.alert('SOS Sent', 'Your emergency signal has been sent to the authorities.');
+        Notifications.scheduleNotificationAsync({
+          content: {
+            title: 'SOS Sent!',
+            body: 'Your emergency signal has been sent to the authorities.',
+          },
+          trigger: null,
+        });
+      } catch (error) {
+        console.error('Error sending SOS:', error);
+        Alert.alert('Error', 'Failed to send SOS signal.');
+      }
     }
   };
 
@@ -161,39 +169,32 @@ export default function TabLayout() {
           name="index"
           options={{
             title: 'Directions',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon name={focused ? 'map' : 'map-outline'} color={color} />
-            ),
+            tabBarIcon: ({ color, focused }) => <TabBarIcon name={focused ? 'map' : 'map-outline'} color={color} />,
           }}
         />
         <Tabs.Screen
           name="safety"
           options={{
             title: 'Safety Monitor',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon name={focused ? 'shield' : 'shield-outline'} color={color} />
-            ),
+            tabBarIcon: ({ color, focused }) => <TabBarIcon name={focused ? 'shield' : 'shield-outline'} color={color} />,
           }}
         />
         <Tabs.Screen
           name="profile"
           options={{
             title: 'Profile',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon name={focused ? 'person' : 'person-outline'} color={color} />
-            ),
+            tabBarIcon: ({ color, focused }) => <TabBarIcon name={focused ? 'person' : 'person-outline'} color={color} />,
           }}
         />
         <Tabs.Screen
           name="attractions"
           options={{
             title: 'Nearby',
-            tabBarIcon: ({ color, focused }) => (
-              <TabBarIcon name={focused ? 'compass' : 'compass-outline'} color={color} />
-            ),
+            tabBarIcon: ({ color, focused }) => <TabBarIcon name={focused ? 'compass' : 'compass-outline'} color={color} />,
           }}
         />
       </Tabs>
+
       <TouchableOpacity
         style={[styles.panicButton, { bottom: insets.bottom + 65 }]}
         onPress={handleSOS}>
@@ -210,7 +211,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     alignItems: 'center',
-    paddingTop: 40, // Added padding to avoid overlap with status bar
   },
   tabBar: {
     height: 60,
