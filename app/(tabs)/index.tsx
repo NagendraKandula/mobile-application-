@@ -22,22 +22,22 @@ const TOMTOM_API_KEY = process.env.NEXT_PUBLIC_TOMTOM_KEY;
 
 export default function HomeScreen() {
   const params = useLocalSearchParams<{
-    lat?: string;
-    lng?: string;
+    destinationLat?: string;
+    destinationLon?: string;
     name?: string;
   }>();
   console.log("Destination params:", params);
 
   const destinationFromParam = useMemo(() => {
-    if (params.lat && params.lng) {
+    if (params.destinationLat && params.destinationLon) {
       return {
-        latitude: parseFloat(params.lat),
-        longitude: parseFloat(params.lng),
+        latitude: parseFloat(params.destinationLat),
+        longitude: parseFloat(params.destinationLon),
         name: params.name || "",
       };
     }
     return null;
-  }, [params.lat, params.lng, params.name]);
+  }, [params.destinationLat, params.destinationLon, params.name]);
 
   const [originInput, setOriginInput] = useState("");
   const [destinationInput, setDestinationInput] = useState(

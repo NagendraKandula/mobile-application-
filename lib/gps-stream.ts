@@ -1,162 +1,138 @@
 import * as Location from "expo-location";
-import * as Notifications from "expo-notifications";
 import * as TaskManager from "expo-task-manager";
 
-let ws: WebSocket | null = null;
 const BACKGROUND_GPS_TASK = "background-gps-task";
 
+// Store these globally so the background task can access them
 let globalTouristId: string | null = null;
 let globalServerUrl: string | null = null;
 
+// Keep track of the foreground subscription to stop it later
+let foregroundSubscription: Location.LocationSubscription | null = null;
+
 /**
- * Foreground GPS streaming with WebSocket
+ * Sends a location update to the backend tracking endpoint.
+ */
+async function sendLocationUpdate(location: Location.LocationObject) {
+  if (!globalTouristId || !globalServerUrl) {
+    return;
+  }
+
+  // --- TODO: Get the user's next destination from your app's state ---
+  // For now, these are placeholder values. You'll need to replace them.
+  const destination = {
+    lat: null, // e.g., currentItinerary.nextStop.latitude
+    lon: null, // e.g., currentItinerary.nextStop.longitude
+  };
+  // --------------------------------------------------------------------
+
+  try {
+    const response = await fetch(`${globalServerUrl}/track`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tourist_id: globalTouristId,
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        destination_lat: destination.lat,
+        destination_lon: destination.lon,
+      }),
+    });
+    
+    // You can check the response for any anomalies found by the server
+    const data = await response.json();
+    if (data.anomalies && data.anomalies.length > 0) {
+        console.log("Anomalies Detected:", data.anomalies);
+        // Here you could trigger a notification for the user
+    }
+
+  } catch (err) {
+    console.warn("⚠️ Failed to send GPS tracking update:", err);
+  }
+}
+
+/**
+ * Starts both foreground and background location tracking.
  */
 export async function startGpsStream(touristId: string, serverUrl: string) {
   globalTouristId = touristId;
   globalServerUrl = serverUrl;
 
-  if (ws && ws.readyState === WebSocket.OPEN) return; // already running
+  console.log("✅ Starting GPS Stream...");
 
-  // Ask for permissions
-  const { status } = await Location.requestForegroundPermissionsAsync();
-  if (status !== "granted") {
-    console.warn("⚠️ Location permission not granted");
-    return;
-  }
-
-  // Connect WebSocket
-  try {
-    ws = new WebSocket(`${serverUrl.replace(/^http/, "ws")}/ws/gps`);
-
-    ws.onopen = () => console.log("✅ GPS WebSocket connected");
-
-    ws.onmessage = async (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("📡 Server risk update:", data);
-
-        if (data.risk_level === "🚨 Unsafe") {
-          await Notifications.scheduleNotificationAsync({
-            content: {
-              title: "⚠️ Unsafe Location Detected",
-              body: "Be careful! Your current movement is flagged as unsafe.",
-              sound: true,
-            },
-            trigger: null,
-          });
-        }
-      } catch (err) {
-        console.warn("⚠️ Failed to parse WS message:", err);
-      }
-    };
-
-    ws.onerror = (err: Event) => {
-      console.warn("⚠️ GPS WebSocket error:", err);
-    };
-
-    ws.onclose = (event) => {
-      console.log(
-        `⚠️ GPS WebSocket closed (code: ${event?.code}, reason: ${
-          event?.reason || "N/A"
-        })`
-      );
-      ws = null;
-      // Optional: auto-reconnect
-      setTimeout(() => {
-        if (globalTouristId && globalServerUrl) {
-          startGpsStream(globalTouristId, globalServerUrl);
-        }
-      }, 5000);
-    };
-  } catch (err) {
-    console.warn("⚠️ Failed to connect GPS WebSocket:", err);
-  }
-
-  // Start watching GPS (foreground)
-  await Location.watchPositionAsync(
+  // Start foreground tracking
+  foregroundSubscription = await Location.watchPositionAsync(
     {
       accuracy: Location.Accuracy.High,
-      timeInterval: 5000,
-      distanceInterval: 5,
+      timeInterval: 10000, // Send update every 10 seconds
+      distanceInterval: 10, // Or every 10 meters
     },
-    (loc) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      ws.send(
-        JSON.stringify({
-          tourist_id: touristId,
-          lat: loc.coords.latitude,
-          lon: loc.coords.longitude,
-          timestamp: new Date().toISOString(),
-        })
-      );
+    (location) => {
+      console.log("📡 Foreground GPS:", location.coords);
+      sendLocationUpdate(location);
     }
   );
 
-  // Also enable background tracking
+  // Start background tracking
   await startBackgroundGps();
 }
 
+/**
+ * Stops all location tracking.
+ */
 export function stopGpsStream() {
-  if (ws) {
-    ws.close();
-    ws = null;
+  console.log("🛑 Stopping GPS Stream...");
+  if (foregroundSubscription) {
+    foregroundSubscription.remove();
+    foregroundSubscription = null;
   }
   stopBackgroundGps();
 }
 
 /**
- * Background GPS task (HTTP fallback)
+ * Background GPS task definition.
  */
 TaskManager.defineTask(BACKGROUND_GPS_TASK, async ({ data, error }) => {
   if (error) {
     console.warn("⚠️ Background GPS error:", error);
     return;
   }
-  if (!globalTouristId || !globalServerUrl) return;
 
   if (data) {
     const { locations } = data as any;
-    const loc = locations[0];
-    if (loc) {
-      console.log("📡 Background GPS:", loc.coords);
-
-      try {
-        await fetch(`${globalServerUrl}/api/gps`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            tourist_id: globalTouristId,
-            lat: loc.coords.latitude,
-            lon: loc.coords.longitude,
-            timestamp: new Date().toISOString(),
-          }),
-        });
-      } catch (err) {
-        console.warn("⚠️ Failed to send GPS (background):", err);
-      }
+    const location = locations[0];
+    if (location) {
+      console.log("📡 Background GPS:", location.coords);
+      // The background task also sends its data to the same endpoint
+      await sendLocationUpdate(location);
     }
   }
 });
 
 async function startBackgroundGps() {
-  const bgStatus = await Location.requestBackgroundPermissionsAsync();
-  if (bgStatus.status !== "granted") {
-    console.warn("⚠️ Background location not granted");
+  const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_GPS_TASK);
+  if (hasStarted) {
+    console.log("Background GPS already started.");
     return;
   }
 
   await Location.startLocationUpdatesAsync(BACKGROUND_GPS_TASK, {
     accuracy: Location.Accuracy.High,
-    timeInterval: 5000,
-    distanceInterval: 5,
+    timeInterval: 30000, // 30 seconds
+    distanceInterval: 50, // 50 meters
     showsBackgroundLocationIndicator: true,
     foregroundService: {
       notificationTitle: "Tourist Safety Monitoring",
-      notificationBody: "Tracking your location for safety.",
+      notificationBody: "Your location is being monitored for your safety.",
     },
   });
+  console.log("Background GPS task started.");
 }
 
 async function stopBackgroundGps() {
-  await Location.stopLocationUpdatesAsync(BACKGROUND_GPS_TASK);
+  const hasStarted = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_GPS_TASK);
+  if (hasStarted) {
+    await Location.stopLocationUpdatesAsync(BACKGROUND_GPS_TASK);
+    console.log("Background GPS task stopped.");
+  }
 }

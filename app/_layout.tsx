@@ -4,18 +4,15 @@ import {
   DefaultTheme,
   ThemeProvider,
 } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { Text, View } from "react-native";
 import "react-native-reanimated";
 
 import { AuthContext, AuthProvider } from "@/context/AuthContext";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useContext } from "react";
+import { useContext, useEffect } from "react";
 
-export const unstable_settings = {
-  anchor: "(tabs)",
-};
 export default function RootLayout() {
   return (
     <AuthProvider>
@@ -26,7 +23,21 @@ export default function RootLayout() {
 
 function RootNavigation() {
   const { user, loading } = useContext(AuthContext);
+  const router = useRouter();
+  const segments = useSegments();
   const colorScheme = useColorScheme();
+
+  useEffect(() => {
+    if (loading) return;
+
+    const inAuthGroup = segments[0] === 'auth';
+
+    if (!user && !inAuthGroup) {
+      router.replace('/auth/login');
+    } else if (user && inAuthGroup) {
+      router.replace('/(tabs)');
+    }
+  }, [user, segments, loading, router]);
 
   if (loading) {
     // Show a splash while auth state is being determined
@@ -40,15 +51,10 @@ function RootNavigation() {
   return (
     <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
       <Stack>
-        {!user ? (
-          // Login screen if not authenticated
-          <Stack.Screen name="auth/login" options={{ headerShown: false }} />
-        ) : (
-          // Main tabs after login
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        )}
-
-        {/* Optional modal route */}
+        {/* Declare all your screens here */}
+        <Stack.Screen name="auth/login" options={{ headerShown: false }} />
+        <Stack.Screen name="auth/signup" options={{ headerShown: false }} />
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="modal"
           options={{ presentation: "modal", title: "Modal" }}

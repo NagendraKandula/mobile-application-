@@ -1,173 +1,144 @@
-import { getCurrentLocation, LocationCoords } from "@/lib/currentLocation";
-import { db } from "@/lib/firebase";
-import { useRouter } from "expo-router";
-import { collection, getDocs } from "firebase/firestore";
-import React, { useEffect, useState } from "react";
-import {
-    ActivityIndicator,
-    FlatList,
-    Image,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
-} from "react-native";
+// app/(tabs)/attractions.tsx
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { FontAwesome } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { router } from 'expo-router';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 interface Attraction {
-  id: string;
   name: string;
-  description: string;
-  image: string;
-  category: string;
-  latitude: number;
-  longitude: number;
+  address: string;
+  distance: number;
+  lat: number;
+  lon: number;
 }
 
 export default function AttractionsScreen() {
   const [attractions, setAttractions] = useState<Attraction[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [userLocation, setUserLocation] = useState<LocationCoords | null>(null);
-  const router = useRouter();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchAttractions = async () => {
+      setIsLoading(true);
+      setError(null);
+      
       try {
-        const loc = await getCurrentLocation();
-        setUserLocation(loc || null);
+        const location = await Location.getCurrentPositionAsync({});
+        const { latitude, longitude } = location.coords;
+        
+        // ⚠️ IMPORTANT: Replace this with your full ngrok URL
+        const serverUrl = 'https://ccc26495aafe.ngrok-free.app';
+        
+        const response = await fetch(`${serverUrl}/get_nearby_attractions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ latitude, longitude }),
+        });
 
-        const snap = await getDocs(collection(db, "attractions"));
-        const data: Attraction[] = snap.docs.map((doc) => ({
-          id: doc.id,
-          ...doc.data(),
-        })) as Attraction[];
+        if (!response.ok) {
+          throw new Error('Failed to fetch attractions.');
+        }
 
+        const data = await response.json();
         setAttractions(data);
-      } catch (err) {
-        console.error("Error fetching attractions:", err);
+
+      } catch (e) {
+        console.error("Error fetching attractions:", e);
+        setError("Could not load nearby attractions.");
       } finally {
-        setLoading(false);
+        setIsLoading(false);
       }
     };
+
     fetchAttractions();
   }, []);
 
-  const calculateDistance = (lat: number, lng: number) => {
-    if (!userLocation) return "-";
-    const toRad = (x: number) => (x * Math.PI) / 180;
-
-    const R = 6371000; // meters
-    const dLat = toRad(lat - userLocation.latitude);
-    const dLon = toRad(lng - userLocation.longitude);
-    const a =
-      Math.sin(dLat / 2) ** 2 +
-      Math.cos(toRad(userLocation.latitude)) *
-        Math.cos(toRad(lat)) *
-        Math.sin(dLon / 2) ** 2;
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    return Math.round(R * c);
-  };
-
-  const goToMap = (attraction: Attraction) => {
-    console.log(attraction)
+  const handleDirections = (attraction: Attraction) => {
     router.push({
-      pathname: "(tabs)",
-      params: {
-        lat: attraction.latitude,
-        lng: attraction.longitude,
-        name: attraction.name,
+      pathname: '/',
+      params: { 
+        destinationLat: attraction.lat, 
+        destinationLon: attraction.lon,
+        destinationName: attraction.name,
       },
     });
   };
 
-  const truncate = (text: string, length = 80) =>
-    text.length > length ? text.slice(0, length) + "..." : text;
-
   const renderItem = ({ item }: { item: Attraction }) => (
-    <View style={styles.card}>
-      <Image source={{ uri: item.image }} style={styles.image} />
-      <View style={styles.cardContent}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.category}>{item.category}</Text>
-        <Text style={styles.description}>{truncate(item.description)}</Text>
-        {userLocation && (
-          <>
-            <Text style={styles.distance}>
-              {calculateDistance(item.latitude, item.longitude)} meters away
-            </Text>
-            <TouchableOpacity
-              style={styles.button}
-              onPress={() => goToMap(item)}
-            >
-              <Text style={styles.buttonText}>Directions</Text>
-            </TouchableOpacity>
-          </>
-        )}
+    <View style={styles.itemContainer}>
+      <View style={styles.itemContent}>
+        <ThemedText type="subtitle">{item.name}</ThemedText>
+        <ThemedText style={styles.address}>{item.address}</ThemedText>
+        <ThemedText style={styles.distance}>
+          {(item.distance / 1000).toFixed(1)} km away
+        </ThemedText>
       </View>
+      <TouchableOpacity style={styles.button} onPress={() => handleDirections(item)}>
+        {/* Corrected Icon Name */}
+        <FontAwesome name="location-arrow" size={24} color="#fff" />
+      </TouchableOpacity>
     </View>
   );
 
-  if (loading) {
-    return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="large" color="#007AFF" />
-      </View>
-    );
-  }
-
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Nearby Tourist Attractions</Text>
-      <FlatList
-        data={attractions}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={{ paddingBottom: 20 }}
-      />
-    </View>
+    <ThemedView style={styles.container}>
+      <ThemedText type="title" style={styles.title}>Nearby Attractions</ThemedText>
+      {isLoading ? (
+        <ActivityIndicator size="large" style={styles.loader} />
+      ) : error ? (
+        <Text style={styles.errorText}>{error}</Text>
+
+      ) : (
+        <FlatList
+          data={attractions}
+          renderItem={renderItem}
+          keyExtractor={(item) => item.name}
+          contentContainerStyle={styles.list}
+        />
+      )}
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f4f6fa",
     padding: 16,
-    paddingTop: 44,
   },
   title: {
-    fontSize: 26,
-    fontWeight: "bold",
-    color: "#2c3e50",
     marginBottom: 16,
-    textAlign: "center",
+    textAlign: 'center',
+    color: '#0055A4', // A nice blue color for the main title
   },
-  loader: { flex: 1, justifyContent: "center", alignItems: "center" },
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    flexDirection: "row",
-    alignItems: "flex-start",
-    elevation: 3,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+  attractionName: {
+    color: '#140707ff', // A dark gray for the attraction name
+    fontWeight: '600',
   },
-  image: { width: 80, height: 80, borderRadius: 10, marginRight: 12 },
-  cardContent: { flex: 1 },
-  name: { fontSize: 18, fontWeight: "600", color: "#34495e" },
-  category: { fontSize: 14, color: "#3498db", marginVertical: 2 },
-  description: { fontSize: 14, color: "#555" },
-  distance: { marginTop: 4, fontSize: 12, color: "#888" },
-  button: {
-    backgroundColor: "#007AFF",
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+  image: {
+    width: 60,
+    height: 60,
     borderRadius: 8,
-    marginTop: 6,
-    alignSelf: "flex-start",
+    marginRight: 16,
   },
-  buttonText: { color: "#fff", fontWeight: "600", fontSize: 12 },
+  itemContainer: {
+    backgroundColor: '#fff',
+    padding: 16,
+    borderRadius: 8,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    elevation: 2,
+  },
+  // ... (rest of the styles are the same) ...
+  loader: { marginTop: 50 },
+  errorText: { textAlign: 'center', marginTop: 50, color: 'red' },
+  list: { paddingBottom: 20 },
+  itemContent: { flex: 1 },
+  address: { fontSize: 14, color: '#666', marginTop: 4 },
+  distance: { fontSize: 12, color: '#007BFF', marginTop: 8, fontWeight: '600' },
+  button: { backgroundColor: '#007BFF', padding: 12, borderRadius: 50, marginLeft: 12 },
 });
