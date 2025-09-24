@@ -1,18 +1,23 @@
+// app/(tabs)/_layout.tsx
+import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as Notifications from 'expo-notifications';
 import { Tabs } from 'expo-router';
-import React, { useEffect, useState } from 'react'; // <-- This line was the main cause of errors
+import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-// Corrected Imports
-import { TabBarIcon } from '@/components/navigation/TabBarIcon';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { dbRealtime, pushSOS } from '@/lib/firebase';
 import { getValidTouristId } from '@/lib/getValidTouristId';
 import { startGpsStream, stopGpsStream } from '@/lib/gps-stream';
 import { onValue, ref } from 'firebase/database';
+
+// A simple TabBarIcon component. You can customize this as needed.
+function TabBarIcon({ name, color }: { name: React.ComponentProps<typeof Ionicons>['name']; color: string }) {
+  return <Ionicons size={28} style={{ marginBottom: -3 }} name={name} color={color} />;
+}
 
 const SafetyScoreDisplay = () => {
   const [safetyInfo, setSafetyInfo] = useState<{
@@ -32,8 +37,8 @@ const SafetyScoreDisplay = () => {
         const location = await Location.getCurrentPositionAsync({});
         const { latitude, longitude } = location.coords;
 
-        // ⚠️ IMPORTANT: Replace this URL with your actual FastAPI service URL
-        const response = await fetch('https://ccc26495aafe.ngrok-free.app/calculate_score', {
+        // Make sure to replace this with your actual server URL
+        const response = await fetch('https://e0d132f1f08a.ngrok-free.app/calculate_score', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ latitude, longitude }),
@@ -205,6 +210,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#ddd',
     alignItems: 'center',
+    paddingTop: 40, // Added padding to avoid overlap with status bar
   },
   tabBar: {
     height: 60,

@@ -118,7 +118,7 @@ async function startBackgroundGps() {
 
   await Location.startLocationUpdatesAsync(BACKGROUND_GPS_TASK, {
     accuracy: Location.Accuracy.High,
-    timeInterval: 30000, // 30 seconds
+    timeInterval: 60000, // 30 seconds
     distanceInterval: 50, // 50 meters
     showsBackgroundLocationIndicator: true,
     foregroundService: {

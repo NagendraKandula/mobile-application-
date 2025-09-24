@@ -31,7 +31,7 @@ export default function AttractionsScreen() {
         const { latitude, longitude } = location.coords;
         
         // ⚠️ IMPORTANT: Replace this with your full ngrok URL
-        const serverUrl = 'https://ccc26495aafe.ngrok-free.app';
+        const serverUrl = 'https://e0d132f1f08a.ngrok-free.app';
         
         const response = await fetch(`${serverUrl}/get_nearby_attractions`, {
             method: 'POST',

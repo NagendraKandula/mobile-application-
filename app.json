@@ -16,5 +16,11 @@
   ],
   "android": {
     "package": "com.raselane.smarttour"
+  },
+  "extra": {
+    "router": {},
+    "eas": {
+      "projectId": "6f5eefe8-42fd-4b5c-81bb-7d7aa6c9cd2f"
+    }
   }
 }

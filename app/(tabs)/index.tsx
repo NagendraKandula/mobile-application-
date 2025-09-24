@@ -108,6 +108,7 @@ export default function HomeScreen() {
       )}.json?key=${TOMTOM_API_KEY}&limit=5`;
       const res = await fetch(url);
       const data = await res.json();
+      
       setActiveField(field);
       setSuggestions(data.results || []);
     } catch (err) {
@@ -156,11 +157,20 @@ export default function HomeScreen() {
   }, [destinationFromParam]);
 
   // 5️⃣ Auto-draw route when both coords are ready
-  useEffect(() => {
-    if (originCoords && destinationCoords) {
+ <WebView
+  ref={webViewRef}
+  style={styles.map}
+  originWhitelist={["*"]}
+  onMessage={(event) => {
+    const msg = event.nativeEvent.data;
+    console.log("Map Event:", msg);
+    // ✅ THIS IS THE CORRECT WAY TO DO IT
+    if (msg === "map-ready" && originCoords && destinationCoords) {
       drawRoute();
     }
-  }, [originCoords, destinationCoords]);
+  }}
+  // ... rest of the props
+/>
 
   return (
     <SafeAreaView style={styles.safeArea}>
