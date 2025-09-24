@@ -63,7 +63,7 @@ const SafetyScoreDisplay = () => {
   };
 
   return (
-    <View style={styles.scoreContainer}>
+    <View style={[styles.scoreContainer,{ marginVertical: 20, padding: 10 }]}>
       {isLoading ? (
         <ActivityIndicator />
       ) : error ? (
