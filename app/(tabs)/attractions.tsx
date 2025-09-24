@@ -30,7 +30,6 @@ export default function AttractionsScreen() {
         const location = await Location.getCurrentPositionAsync({});
         const { latitude, longitude } = location.coords;
         
-        // ⚠️ IMPORTANT: Replace this with your full ngrok URL
         const serverUrl = 'https://e0d132f1f08a.ngrok-free.app';
         
         const response = await fetch(`${serverUrl}/get_nearby_attractions`, {
@@ -64,6 +63,8 @@ export default function AttractionsScreen() {
         destinationLat: attraction.lat, 
         destinationLon: attraction.lon,
         destinationName: attraction.name,
+        // ✅ Pass the distance to the index screen
+        distance: attraction.distance,
       },
     });
   };
@@ -78,7 +79,6 @@ export default function AttractionsScreen() {
         </ThemedText>
       </View>
       <TouchableOpacity style={styles.button} onPress={() => handleDirections(item)}>
-        {/* Corrected Icon Name */}
         <FontAwesome name="location-arrow" size={24} color="#fff" />
       </TouchableOpacity>
     </View>
@@ -91,7 +91,6 @@ export default function AttractionsScreen() {
         <ActivityIndicator size="large" style={styles.loader} />
       ) : error ? (
         <Text style={styles.errorText}>{error}</Text>
-
       ) : (
         <FlatList
           data={attractions}
@@ -112,17 +111,7 @@ const styles = StyleSheet.create({
   title: {
     marginBottom: 16,
     textAlign: 'center',
-    color: '#0055A4', // A nice blue color for the main title
-  },
-  attractionName: {
-    color: '#140707ff', // A dark gray for the attraction name
-    fontWeight: '600',
-  },
-  image: {
-    width: 60,
-    height: 60,
-    borderRadius: 8,
-    marginRight: 16,
+    color: '#0055A4',
   },
   itemContainer: {
     backgroundColor: '#fff',
@@ -133,12 +122,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     elevation: 2,
   },
-  // ... (rest of the styles are the same) ...
   loader: { marginTop: 50 },
   errorText: { textAlign: 'center', marginTop: 50, color: 'red' },
   list: { paddingBottom: 20 },
   itemContent: { flex: 1 },
   address: { fontSize: 14, color: '#666', marginTop: 4 },
   distance: { fontSize: 12, color: '#007BFF', marginTop: 8, fontWeight: '600' },
-  button: { backgroundColor: '#007BFF', padding: 12, borderRadius: 50, marginLeft: 12 },
+  button: { 
+    backgroundColor: '#007BFF', 
+    padding: 12, 
+    borderRadius: 50, 
+    marginLeft: 12,
+    width: 48,
+    height: 48,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
 });
