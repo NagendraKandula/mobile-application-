@@ -98,7 +98,7 @@ export default function HomeScreen() {
       
       setIsSafetyLoading(true);
       try {
-        const response = await fetch('https://e0d132f1f08a.ngrok-free.app/calculate_score', {
+        const response = await fetch('https://eaf9faaef242.ngrok-free.app/calculate_score', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

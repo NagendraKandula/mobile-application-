@@ -30,7 +30,7 @@ export default function AttractionsScreen() {
         const location = await Location.getCurrentPositionAsync({});
         const { latitude, longitude } = location.coords;
         
-        const serverUrl = 'https://e0d132f1f08a.ngrok-free.app';
+        const serverUrl = 'https://eaf9faaef242.ngrok-free.app';
         
         const response = await fetch(`${serverUrl}/get_nearby_attractions`, {
             method: 'POST',

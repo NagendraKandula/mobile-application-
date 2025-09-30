@@ -30,7 +30,7 @@ const SafetyScoreDisplay = () => {
         const { latitude, longitude } = location.coords;
 
         const response = await fetch(
-          'https://e0d132f1f08a.ngrok-free.app/calculate_score',
+          'https://eaf9faaef242.ngrok-free.app/calculate_score',
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
